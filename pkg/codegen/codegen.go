@@ -43,6 +43,7 @@ type Options struct {
 	IncludeTags        []string          // Only include operations that have one of these tags. Ignored when empty.
 	ExcludeTags        []string          // Exclude operations that have one of these tags. Ignored when empty.
 	UserTemplates      map[string]string // Override built-in templates from user-provided files
+	Validate           bool              // Validate specifies validation tags
 }
 
 type goImport struct {
@@ -122,7 +123,7 @@ func Generate(swagger *openapi3.Swagger, packageName string, opts Options) (stri
 
 	var typeDefinitions string
 	if opts.GenerateTypes {
-		typeDefinitions, err = GenerateTypeDefinitions(t, swagger, ops)
+		typeDefinitions, err = GenerateTypeDefinitions(t, swagger, ops, opts.Validate)
 		if err != nil {
 			return "", errors.Wrap(err, "error generating type definitions")
 		}
@@ -263,7 +264,7 @@ func Generate(swagger *openapi3.Swagger, packageName string, opts Options) (stri
 	return string(outBytes), nil
 }
 
-func GenerateTypeDefinitions(t *template.Template, swagger *openapi3.Swagger, ops []OperationDefinition) (string, error) {
+func GenerateTypeDefinitions(t *template.Template, swagger *openapi3.Swagger, ops []OperationDefinition, validate bool) (string, error) {
 	schemaTypes, err := GenerateTypesForSchemas(swagger.Components.Schemas)
 	if err != nil {
 		return "", errors.Wrap(err, "error generating Go types for component schemas")

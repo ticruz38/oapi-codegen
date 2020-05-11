@@ -1,10 +1,12 @@
 package codegen
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 )
 
@@ -13,12 +15,20 @@ type Schema struct {
 	GoType  string // The Go type needed to represent the schema
 	RefType string // If the type has a type name, this is set
 
+	Validation               *Validation
 	Properties               []Property       // For an object, the fields with names
 	HasAdditionalProperties  bool             // Whether we support additional properties
 	AdditionalPropertiesType *Schema          // And if we do, their type
 	AdditionalTypes          []TypeDefinition // We may need to generate auxiliary helper types, stored here
 
 	SkipOptionalPointer bool // Some types don't need a * in front when they're optional
+}
+
+// Validation rules applicable to a schema
+type Validation struct {
+	Max     *int
+	Min     *int
+	Pattern *string
 }
 
 func (s Schema) IsRef() bool {
@@ -247,7 +257,23 @@ func GenerateGoSchema(sref *openapi3.SchemaRef, path []string) (Schema, error) {
 		return outSchema, nil
 	} else {
 		f := schema.Format
-
+		outSchema.Validation = &Validation{}
+		// enrich with validation rules if exist
+		if schema.Max != nil {
+			outSchema.Validation.Max = swag.Int(int(*schema.Max))
+		}
+		if schema.MaxLength != nil {
+			outSchema.Validation.Max = swag.Int(int(*schema.MaxLength))
+		}
+		if schema.Min != nil {
+			outSchema.Validation.Min = swag.Int(int(*schema.Min))
+		}
+		if schema.MinLength != 0 {
+			outSchema.Validation.Min = swag.Int(int(schema.MinLength))
+		}
+		if schema.Pattern != "" {
+			outSchema.Validation.Pattern = swag.String(schema.Pattern)
+		}
 		switch t {
 		case "array":
 			// For arrays, we'll get the type of the Items and throw a
@@ -334,10 +360,26 @@ func GenFieldsFromProperties(props []Property) []string {
 		}
 		field += fmt.Sprintf("    %s %s", p.GoFieldName(), p.GoTypeDef())
 		if p.Required {
-			field += fmt.Sprintf(" `json:\"%s\"`", p.JsonFieldName)
+			field += fmt.Sprintf(" `json:\"%s\"", p.JsonFieldName)
 		} else {
-			field += fmt.Sprintf(" `json:\"%s,omitempty\"`", p.JsonFieldName)
+			field += fmt.Sprintf(" `json:\"%s,omitempty\"", p.JsonFieldName)
 		}
+		if p.Schema.Validation != nil && (p.Schema.Validation.Max != nil || p.Schema.Validation.Min != nil || p.Schema.Validation.Pattern != nil) {
+			field += " validate:\"omitempty"
+			if p.Schema.Validation.Max != nil {
+				field += fmt.Sprintf(",max=%v", *p.Schema.Validation.Max)
+			}
+			if p.Schema.Validation.Min != nil {
+				field += fmt.Sprintf(",min=%v", *p.Schema.Validation.Min)
+			}
+			if p.Schema.Validation.Pattern != nil {
+				// encode the regex in hex format, to avoid special character in the code
+				encoded := hex.EncodeToString([]byte(*p.Schema.Validation.Pattern))
+				field += fmt.Sprintf(",pattern=%v", encoded)
+			}
+			field += "\""
+		}
+		field += "`"
 		fields = append(fields, field)
 	}
 	return fields
